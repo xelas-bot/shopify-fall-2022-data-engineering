@@ -29,6 +29,7 @@ executor = ThreadPoolExecutor(max_workers=8)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'zip'}
 
+# Convert password to bytes and then xor binary data in image
 def decrypt(name: str, password: int, user: str) -> Image:
     enc_imag = f = open(f'database/{user}/{name}', "rb")
     data = bytearray(enc_imag.read())
@@ -45,7 +46,7 @@ def decrypt(name: str, password: int, user: str) -> Image:
     except: # if Image.open throws an error it means the image bytes are (purposefully) corrupted
         return Image.new('RGB', (100, 100))
 
-
+# Convert password to bytes and then xor binary data in image
 def thread_function_encrypt(data: zipfile, password: int, name: str, user: str) -> None:
     # time.sleep(0.25) # for testing purposes
     f = open(f'database/{user}/{name.split("/")[-1]}', "wb")
@@ -58,13 +59,17 @@ def thread_function_encrypt(data: zipfile, password: int, name: str, user: str) 
     f.write(data)
     f.close()
 
+
+# check if file extension is valid
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# check if file is a zip file
 def is_zip(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'zip'
 
-
-@app.route('/upload', methods=['GET', 'POST'])
+# Loops through Zip archive and aysnchronously adds encryption tasks to a threadpool
+@app.route('/upload', methods=['POST'])
 def upload_file():
     startTime = time.time()
     user = None
@@ -78,18 +83,19 @@ def upload_file():
     else:
         return "Enter Password"
 
-    
     if request.method == 'POST':
         # check if the post request has the file part
         if 'file' not in request.files:
             print(request.files)
             return "error no file"
         file = request.files['file']
+
         # If the user does not select a file, the browser submits an
         # empty file without a filename.
         if file.filename == '':
             return "error no file"
         filename = file.filename
+
         if file and allowed_file(filename):
             # if file is single image then just run thread function synchronously
             if (not is_zip(filename)):
@@ -152,6 +158,7 @@ def retrieve_image():
         return "Image could not be located in secure database!"
 
 
+    # decrypt image and save as a Bytes object to send to client
     image_format = img_request.split('.')[-1]
     if (image_format == 'jpg'): # jpg extension is super annoying!
         image_format = 'jpeg'

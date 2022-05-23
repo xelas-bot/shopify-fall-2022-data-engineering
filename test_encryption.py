@@ -35,7 +35,7 @@ os.system("""curl -F "file=@test_images.zip" http://127.0.0.1:5000/upload -H "us
 # curl -F 'file=@test_images.zip' http://127.0.0.1:5000/upload -H "username: patel" -H "password: 4120"
 
  
-# iterate over files in original image directory comparing each to the API call
+# iterate over files in original image directory comparing each to the result from the API call
 for filename in os.listdir(directory):
     f = os.path.join(directory, filename)
     os.system(f'curl -o {filename} http://127.0.0.1:5000/retrieve -H \"username: patel\" -H \"password: 4120\" -H \"img_name: {filename}\"')
