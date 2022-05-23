@@ -16,6 +16,7 @@ from flask import redirect
 from flask import url_for
 from flask import send_file
 import time
+import shutil
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'C:/Users/shrey/Pictures/Saved Pictures'
@@ -29,43 +30,38 @@ executor = ThreadPoolExecutor(max_workers=8)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'zip'}
 
 def decrypt(name: str, password: int, user: str) -> Image:
-    enc_imag = f = open(f'test_enc/{user}/{name}', "rb")
+    enc_imag = f = open(f'database/{user}/{name}', "rb")
     data = bytearray(enc_imag.read())
-    password = (hex(password) + PASSWORD_OFFSET) % 0xFF
-    password = hex(password)
+    password = (password + PASSWORD_OFFSET) % 0xFF
+    password = password.to_bytes(1,'big')[0]
     for index, byte in enumerate(data):
         data[index] = byte ^ password
     
+
+
     try:
         image = Image.open(BytesIO(data))
         return image
-    except:
+    except: # if Image.open throws an error it means the image bytes are (purposefully) corrupted
         return Image.new('RGB', (100, 100))
 
-    
-  
 
-def thread_function(data, password, name, user):
-    f = open(f'test_enc/{user}/{name.split("/")[-1]}', "wb")
+def thread_function_encrypt(data: zipfile, password: int, name: str, user: str) -> None:
+    # time.sleep(0.25) # for testing purposes
+    f = open(f'database/{user}/{name.split("/")[-1]}', "wb")
     data = data.read(name)
     data = bytearray(data)
-    password = (hex(password) + PASSWORD_OFFSET) % 0xFF
-    password = hex(password)
+    password = (password + PASSWORD_OFFSET) % 0xFF
+    password = password.to_bytes(1,'big')[0]
     for index, byte in enumerate(data):
         data[index] = byte ^ password
     f.write(data)
     f.close()
 
-@app.route("/")
-def hello_world():
-    return "<p>Hello, World!</p>"
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 def is_zip(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() == 'zip'
-
-
 
 
 @app.route('/upload', methods=['GET', 'POST'])
@@ -97,19 +93,19 @@ def upload_file():
         if file and allowed_file(filename):
             # if file is single image then just run thread function synchronously
             if (not is_zip(filename)):
-                thread_function(file,password,filename)
+                thread_function_encrypt(file,password,filename)
                 return "saved"
             zippedImgs = zipfile.ZipFile(file,mode='r')
-            if (not os.path.exists('test_enc')):
-                os.mkdir('test_enc')
-            if (not os.path.exists(f'test_enc/{user}')):
-                os.mkdir(f'test_enc/{user}')
+            if (not os.path.exists('database')):
+                os.mkdir('database')
+            if (not os.path.exists(f'database/{user}')):
+                os.mkdir(f'database/{user}')
             futures = []
             for i in range(len(zippedImgs.namelist())):
                 file_in_zip = zippedImgs.namelist()[i]
                 if (not allowed_file(file_in_zip)):
                     continue
-                future = executor.submit(thread_function, zippedImgs, password, file_in_zip, user)
+                future = executor.submit(thread_function_encrypt, zippedImgs, password, file_in_zip, user)
                 futures.append(future)
             
             done, not_done = wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
@@ -147,20 +143,20 @@ def retrieve_image():
     else:
         return "Enter Password"
     if ('img_name' in request.headers):
-        img_request = int(request.headers['img_name'])
+        img_request = str(request.headers['img_name'])
     else:
         return "Please specify an Image"
     
     # check if user + image exists in "database"
-    if (not os.path.isfile(f'test_enc/{user}/{img_request}') ):
+    if (not os.path.isfile(f'database/{user}/{img_request}') ):
         return "Image could not be located in secure database!"
 
 
     image_format = img_request.split('.')[-1]
-    password = request.headers['password']
-    img = decrypt(img_request, password)
+    if (image_format == 'jpg'): # jpg extension is super annoying!
+        image_format = 'jpeg'
+    img = decrypt(img_request, password, user)
     img_io = BytesIO()
-    img.save(img_io, image_format, quality=70)
+    img.save(img_io, image_format)
     img_io.seek(0)
     return send_file(img_io, mimetype=f'image/{image_format}')
-   
