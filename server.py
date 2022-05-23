@@ -14,7 +14,7 @@ PASSWORD = 0x71
 executor = ThreadPoolExecutor(max_workers=4)
 
 def decrypt(name,PASSWORD):
-    enc_imag = f = open(f'test_enc/{name}', "rb")
+    enc_imag = open(f'test_enc/{name}', "rb")
     data = bytearray(enc_imag.read())
     for index, byte in enumerate(data):
         data[index] = byte ^ PASSWORD
@@ -50,4 +50,4 @@ def thread_function(data, password, name):
 
 # done, not_done = wait(futures, return_when=concurrent.futures.ALL_COMPLETED)       
 # print(done)
-decrypt("chic.PNG",PASSWORD)
+decrypt("Tark.PNG",PASSWORD)

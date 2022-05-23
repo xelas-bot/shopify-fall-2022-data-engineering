@@ -14,31 +14,45 @@ import requests
 from flask import request
 from flask import redirect
 from flask import url_for
+from flask import send_file
+import time
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'C:/Users/shrey/Pictures/Saved Pictures'
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1000 * 1000
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1000 * 1000 #max file size able to be recieved
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 
-PASSWORD = 0x71
-executor = ThreadPoolExecutor(max_workers=4)
+PASSWORD_OFFSET = 0x71 # This is the offset from the user password we use
+executor = ThreadPoolExecutor(max_workers=8)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'zip'}
 
-def decrypt(name,PASSWORD):
-    enc_imag = f = open(f'test_enc/{name}', "rb")
+def decrypt(name: str, password: int, user: str) -> Image:
+    enc_imag = f = open(f'test_enc/{user}/{name}', "rb")
     data = bytearray(enc_imag.read())
+    password = (hex(password) + PASSWORD_OFFSET) % 0xFF
+    password = hex(password)
     for index, byte in enumerate(data):
-        data[index] = byte ^ PASSWORD
-    image = Image.open(BytesIO(data))
-    image.show()
+        data[index] = byte ^ password
+    
+    try:
+        image = Image.open(BytesIO(data))
+        return image
+    except:
+        return Image.new('RGB', (100, 100))
+
+    
   
 
-def thread_function(data, password, name):
-    f = open(f'test_enc/{name}', "wb")
+def thread_function(data, password, name, user):
+    f = open(f'test_enc/{user}/{name.split("/")[-1]}', "wb")
+    data = data.read(name)
+    data = bytearray(data)
+    password = (hex(password) + PASSWORD_OFFSET) % 0xFF
+    password = hex(password)
     for index, byte in enumerate(data):
-        data[index] = byte ^ PASSWORD
+        data[index] = byte ^ password
     f.write(data)
     f.close()
 
@@ -54,9 +68,21 @@ def is_zip(filename):
 
 
 
-
 @app.route('/upload', methods=['GET', 'POST'])
 def upload_file():
+    startTime = time.time()
+    user = None
+    password = None
+    if ('username' in request.headers):
+        user = str(request.headers['username'])
+    else:
+        return "Enter username"
+    if ('password' in request.headers):
+        password = int(request.headers['password'])
+    else:
+        return "Enter Password"
+
+    
     if request.method == 'POST':
         # check if the post request has the file part
         if 'file' not in request.files:
@@ -69,22 +95,27 @@ def upload_file():
             return "error no file"
         filename = file.filename
         if file and allowed_file(filename):
+            # if file is single image then just run thread function synchronously
             if (not is_zip(filename)):
-                data = bytearray(file.read())
-                thread_function(data,PASSWORD,filename)
+                thread_function(file,password,filename)
                 return "saved"
             zippedImgs = zipfile.ZipFile(file,mode='r')
             if (not os.path.exists('test_enc')):
                 os.mkdir('test_enc')
+            if (not os.path.exists(f'test_enc/{user}')):
+                os.mkdir(f'test_enc/{user}')
             futures = []
             for i in range(len(zippedImgs.namelist())):
                 file_in_zip = zippedImgs.namelist()[i]
-                data = zippedImgs.read(file_in_zip)
-                data = bytearray(data)
-                file_in_zip = file_in_zip.split('/')
-                future = executor.submit(thread_function, data, PASSWORD, file_in_zip[-1])
+                if (not allowed_file(file_in_zip)):
+                    continue
+                future = executor.submit(thread_function, zippedImgs, password, file_in_zip, user)
                 futures.append(future)
-            done, not_done = wait(futures, return_when=concurrent.futures.ALL_COMPLETED) 
+            
+            done, not_done = wait(futures, return_when=concurrent.futures.ALL_COMPLETED)
+            print(done)
+            executionTime = (time.time() - startTime)
+            print('Execution time in seconds: ' + str(executionTime))
             return "file saved"
     return '''
     <!doctype html>
@@ -97,16 +128,39 @@ def upload_file():
     '''
 
 
+@app.route('/retrieve', methods=['GET'])
+def retrieve_image():
 
-
-
-
-
+    # search for image user is looking for
+    # get password for user
+    # decrypt image using password + offset
+    # send image back
+    user = None
+    password = None
+    img_request = None
+    if ('username' in request.headers):
+        user = str(request.headers['username'])
+    else:
+        return "Enter username"
+    if ('password' in request.headers):
+        password = int(request.headers['password'])
+    else:
+        return "Enter Password"
+    if ('img_name' in request.headers):
+        img_request = int(request.headers['img_name'])
+    else:
+        return "Please specify an Image"
     
+    # check if user + image exists in "database"
+    if (not os.path.isfile(f'test_enc/{user}/{img_request}') ):
+        return "Image could not be located in secure database!"
 
 
-
-
-
-          
-    # print(done)
+    image_format = img_request.split('.')[-1]
+    password = request.headers['password']
+    img = decrypt(img_request, password)
+    img_io = BytesIO()
+    img.save(img_io, image_format, quality=70)
+    img_io.seek(0)
+    return send_file(img_io, mimetype=f'image/{image_format}')
+   
